@@ -1,7 +1,7 @@
 [project]
-name = "smugmug"
+name = "smugmug-downloader"
 version = "0.1.0"
-description = "Add your description here"
+description = "Using smugmug API v2 downloads all the files stored by smugmug for a user account."
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
