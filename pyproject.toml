@@ -9,3 +9,9 @@ dependencies = [
     "rich>=14.2.0",
     "typer>=0.21.1",
 ]
+
+[project.scripts]
+smugmug-downloader = "smugmug_downloader.cli:app"
+
+[tool.setuptools.packages.find]
+include = ["smugmug_downloader*"]
