@@ -15,6 +15,10 @@ console = Console()
 
 app = typer.Typer()
 
+cachepath = Path('cache.txt')
+if cachepath.exists() == False:
+    cachepath.touch()
+
 # API credentials
 
 API_KEY = getenv('SMUGMUG_API_KEY')
@@ -283,8 +287,21 @@ class SmugMugDownloader:
         failed = 0
 
         for image in images:
-            filename = image.get('FileName', f"image_{image.get('ImageKey', 'unknown')}")
+            image_key = image.get('ImageKey', 'unknown')            
+            filename = image.get('FileName', f"image_{image_key}")
             filepath = album_path / filename
+
+
+            if image_key == 'unknown':
+                skipped += 1
+                console.print(f"  [dim]Skipping (unknown)[/dim]")
+                continue
+            if image_key in cachepath.read_text().splitlines():
+                skipped += 1
+                console.print(f"  [dim]Skipping (cached): {filepath.name}[/dim]")
+                continue
+            with open(cachepath, 'a') as f:
+                f.write(f'\n{image_key}')
 
             download_url = self.get_image_download_url(image)
             if download_url:

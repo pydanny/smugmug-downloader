@@ -15,3 +15,6 @@ smugmug-downloader = "smugmug_downloader.cli:app"
 
 [tool.setuptools.packages.find]
 include = ["smugmug_downloader*"]
+
+[tool.uv]
+package = true
