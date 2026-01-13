@@ -372,22 +372,3 @@ def main(
 if __name__ == "__main__":
     app()
 
-
-duff = """
-  Usage
-
-  # Install dependencies
-  uv sync
-
-  # Download all files from a user
-  uv run python main.py <username>
-
-  # Specify custom output directory
-  uv run python main.py <username> /path/to/downloads
-
-  On first run, you'll be prompted to:
-  1. Visit an authorization URL
-  2. Enter a 6-digit PIN
-
-  After that, tokens are saved and reused automatically.
-"""
