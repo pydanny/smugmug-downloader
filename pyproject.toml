@@ -1,6 +1,6 @@
 [project]
 name = "smugmug-downloader"
-version = "0.2.0"
+version = "0.3.0"
 description = "Using smugmug API v2 downloads all the files stored by smugmug for a user account."
 readme = "README.md"
 requires-python = ">=3.14"
@@ -12,6 +12,9 @@ dependencies = [
 
 [project.scripts]
 smugmug-downloader = "smugmug_downloader.cli:app"
+
+urls.Homepage = "https://github.com/feldroy/air"
+urls.Issues = "https://github.com/feldroy/air/issues"
 
 [tool.setuptools.packages.find]
 include = ["smugmug_downloader*"]
