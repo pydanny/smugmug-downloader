@@ -23,18 +23,20 @@ export SMUGMUG_API_SECRET="your-api-secret"
 
 ## Installation
 
+Using `uv`, add the project:
+
 ```bash
-uv sync
+uv add smugmug-downloader
 ```
 
 ## Usage
 
 ```bash
 # Download all files from a user's account
-uv run python main.py <username>
+uv run smugmug-downloader feldroy <username>
 
 # Specify a custom output directory
-uv run python main.py <username> --output /path/to/downloads
+uv run smugmug-downloader feldroy <username> --output /path/to/downloads
 ```
 
 The default output directory is `downloads/`.
