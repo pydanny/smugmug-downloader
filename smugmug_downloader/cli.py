@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """SmugMug file downloader - downloads all files from a user's account."""
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from os import getenv
 from pathlib import Path
 from urllib.parse import urljoin
@@ -112,11 +113,12 @@ def authenticate() -> OAuth1Session:
 class SmugMugDownloader:
     """Downloads all files from a SmugMug user."""
 
-    def __init__(self, session: OAuth1Session, output_dir: str = "downloads"):
+    def __init__(self, session: OAuth1Session, output_dir: str = "downloads", max_workers: int = 10):
         self.session = session
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.headers = {'Accept': 'application/json'}
+        self.max_workers = max_workers
 
     def api_get(self, url: str, params: dict = None) -> dict:
         """Make an authenticated GET request to the API."""
@@ -223,22 +225,24 @@ class SmugMugDownloader:
     def download_file(self, url: str, filepath: Path) -> bool:
         """Download a file from URL to filepath."""
         if filepath.exists():
-            console.print(f"  [dim]Skipping (exists): {filepath.name}[/dim]")
             return False
 
         try:
             # Use OAuth session for authenticated downloads
-            response = self.session.get(url, stream=True)
+            response = self.session.get(url, stream=True, timeout=30)
             response.raise_for_status()
 
             filepath.parent.mkdir(parents=True, exist_ok=True)
 
             with open(filepath, 'wb') as f:
-                for chunk in response.iter_content(chunk_size=8192):
-                    f.write(chunk)
+                for chunk in response.iter_content(chunk_size=1048576):  # 1MB chunks
+                    if chunk:
+                        f.write(chunk)
             return True
         except Exception as e:
             console.print(f"  [red]Error downloading {filepath.name}: {e}[/red]")
+            if filepath.exists():
+                filepath.unlink()  # Remove partial download
             return False
 
     def traverse_and_download(self, node_uri: str, current_path: Path, progress: Progress, task_id):
@@ -270,7 +274,7 @@ class SmugMugDownloader:
                     self.download_album(album_uri, child_path, name, progress)
 
     def download_album(self, album_uri: str, album_path: Path, album_name: str, progress: Progress):
-        """Download all images in an album."""
+        """Download all images in an album using parallel workers."""
         images = self.get_album_images(album_uri)
 
         if not images:
@@ -280,40 +284,61 @@ class SmugMugDownloader:
         console.print(f"\n[bold]Album: {album_name}[/bold] ({len(images)} files)")
         album_path.mkdir(parents=True, exist_ok=True)
 
-        download_task = progress.add_task(f"[green]Downloading {album_name}...", total=len(images))
+        # Load cache once
+        cached_keys = set(cachepath.read_text().splitlines())
+        
+        # Prepare download tasks
+        download_tasks = []
+        for image in images:
+            image_key = image.get('ImageKey', 'unknown')
+            filename = image.get('FileName', f"image_{image_key}")
+            filepath = album_path / filename
+
+            if image_key == 'unknown':
+                continue
+            if image_key in cached_keys:
+                continue
+            
+            download_tasks.append((image, image_key, filename, filepath))
+
+        if not download_tasks:
+            console.print(f"  [dim]All files already downloaded[/dim]")
+            return
+
+        download_task = progress.add_task(f"[green]Downloading {album_name}...", total=len(download_tasks))
 
         downloaded = 0
         skipped = 0
         failed = 0
 
-        for image in images:
-            image_key = image.get('ImageKey', 'unknown')            
-            filename = image.get('FileName', f"image_{image_key}")
-            filepath = album_path / filename
-
-
-            if image_key == 'unknown':
-                skipped += 1
-                console.print(f"  [dim]Skipping (unknown)[/dim]")
-                continue
-            if image_key in cachepath.read_text().splitlines():
-                skipped += 1
-                console.print(f"  [dim]Skipping (cached): {filepath.name}[/dim]")
-                continue
-            with open(cachepath, 'a') as f:
-                f.write(f'\n{image_key}')
-
+        def download_single(task_data):
+            image, image_key, filename, filepath = task_data
             download_url = self.get_image_download_url(image)
             if download_url:
-                if self.download_file(download_url, filepath):
-                    downloaded += 1
-                else:
-                    skipped += 1
-            else:
-                console.print(f"  [yellow]No download URL for: {filename}[/yellow]")
-                failed += 1
+                result = self.download_file(download_url, filepath)
+                return ('downloaded' if result else 'skipped', image_key)
+            return ('failed', image_key)
 
-            progress.update(download_task, advance=1)
+        # Download files in parallel
+        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+            futures = {executor.submit(download_single, task): task for task in download_tasks}
+            
+            for future in as_completed(futures):
+                try:
+                    status, image_key = future.result()
+                    if status == 'downloaded':
+                        downloaded += 1
+                        with open(cachepath, 'a') as f:
+                            f.write(f'{image_key}\n')
+                    elif status == 'skipped':
+                        skipped += 1
+                    else:
+                        failed += 1
+                except Exception as e:
+                    console.print(f"  [red]Error: {e}[/red]")
+                    failed += 1
+                
+                progress.update(download_task, advance=1)
 
         progress.remove_task(download_task)
         console.print(f"  [green]Downloaded: {downloaded}[/green], [dim]Skipped: {skipped}[/dim], [red]Failed: {failed}[/red]")
@@ -362,10 +387,11 @@ class SmugMugDownloader:
 def main(
     username: str = typer.Argument(help="SmugMug username to download from"),
     output_dir: str = typer.Option("downloads", "--output", "-o", help="Output directory for downloads"),
+    workers: int = typer.Option(10, "--workers", "-w", help="Number of parallel download workers"),
 ):
     """Download all files from a SmugMug user's account."""
     session = authenticate()
-    downloader = SmugMugDownloader(session, output_dir)
+    downloader = SmugMugDownloader(session, output_dir, max_workers=workers)
     downloader.download_user(username)
 
 
