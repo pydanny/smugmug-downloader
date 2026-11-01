@@ -259,7 +259,7 @@ class SmugMugDownloader:
 
             if node_type == 'Folder':
                 progress.update(task_id, description=f"[cyan]Scanning folder: {name}[/cyan]")
-                child_uri = child.get('Uris', {}).get('Node', {}).get('Uri')
+                child_uri = child.get('Uri')
                 if child_uri:
                     self.traverse_and_download(child_uri, child_path, progress, task_id)
 
