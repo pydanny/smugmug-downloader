@@ -24,11 +24,6 @@ if cachepath.exists() == False:
 API_KEY = getenv('SMUGMUG_API_KEY')
 API_SECRET = getenv('SMUGMUG_API_SECRET') 
 
-if API_KEY is None or API_SECRET is None:
-    console.print('[bold red]ERROR!!![/bold red]')
-    console.print('[bold red]Set SMUGMUG_API_KEY and SMUGMUG_API_SECRET env variables[/bold red]')
-    raise typer.Abort
-
 # OAuth endpoints
 REQUEST_TOKEN_URL = 'https://api.smugmug.com/services/oauth/1.0a/getRequestToken'
 AUTHORIZATION_URL = 'https://api.smugmug.com/services/oauth/1.0a/authorize'
@@ -55,6 +50,11 @@ def save_tokens(access_token: str, access_token_secret: str):
 
 def authenticate() -> OAuth1Session:
     """Authenticate with SmugMug using OAuth1.0a."""
+    if API_KEY is None or API_SECRET is None:
+        console.print('[bold red]ERROR!!![/bold red]')
+        console.print('[bold red]Set SMUGMUG_API_KEY and SMUGMUG_API_SECRET env variables[/bold red]')
+        raise typer.Abort
+
     tokens = load_tokens()
 
     if tokens:
