@@ -3,7 +3,7 @@
 
 from os import getenv
 from pathlib import Path
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlsplit
 import typer
 
 import requests
@@ -118,13 +118,37 @@ class SmugMugDownloader:
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.headers = {'Accept': 'application/json'}
 
-    def api_get(self, url: str, params: dict = None) -> dict:
+    def api_get(self, url: str, params: dict = None, *, allow_redirects: bool = True) -> dict:
         """Make an authenticated GET request to the API."""
         if not url.startswith('http'):
             url = urljoin(API_BASE, url)
-        response = self.session.get(url, headers=self.headers, params=params)
+        response = self.session.get(url, headers=self.headers, params=params,
+                                    allow_redirects=allow_redirects)
+        if not allow_redirects and response.is_redirect:
+            raise ValueError("Pagination redirects are not allowed")
         response.raise_for_status()
         return response.json()
+
+    def _pagination_url(self, url: str, params: dict | None, visited: set[str]) -> str:
+        """Validate and track a page destination before an authenticated request."""
+        if not isinstance(url, str) or not url.strip():
+            raise ValueError("Invalid pagination URL")
+        try:
+            prepared = requests.Request('GET', urljoin(API_BASE, url), params=params).prepare()
+            parsed = urlsplit(prepared.url)
+            origin = urlsplit(API_BASE)
+            if (parsed.scheme != origin.scheme or parsed.hostname != origin.hostname
+                    or parsed.port not in (None, 443)
+                    or parsed.username is not None or parsed.password is not None):
+                raise ValueError("Pagination URL must use the SmugMug HTTPS API")
+        except (ValueError, requests.RequestException) as error:
+            raise ValueError("Invalid pagination URL") from error
+        # Default ports and fragments must not disguise a repeated destination.
+        normalized = parsed._replace(netloc=origin.netloc, fragment='').geturl()
+        if normalized in visited:
+            raise ValueError("Repeated pagination URL")
+        visited.add(normalized)
+        return normalized
 
     def get_user(self, username: str) -> dict:
         """Get user information."""
@@ -134,10 +158,13 @@ class SmugMugDownloader:
     def get_node_children(self, node_uri: str) -> list:
         """Get all children of a node (folders and albums), handling pagination."""
         children = []
+        url = f"{node_uri}!children"
         params = {'count': 100}
+        visited = set()
 
         while True:
-            data = self.api_get(f"{node_uri}!children", params=params)
+            url = self._pagination_url(url, params, visited)
+            data = self.api_get(url, allow_redirects=False)
             response = data.get('Response', {})
 
             nodes = response.get('Node', [])
@@ -148,20 +175,24 @@ class SmugMugDownloader:
             # Check for more pages
             pages = response.get('Pages', {})
             next_page = pages.get('NextPage')
-            if not next_page:
+            if next_page is None or next_page == '':
                 break
-            params['start'] = params.get('start', 0) + params['count']
+            url = next_page
+            params = None
 
         return children
 
     def get_album_images(self, album_uri: str) -> list:
         """Get all images in an album, handling pagination."""
         images = []
+        url = f"{album_uri}!images"
         params = {'count': 100}
+        visited = set()
 
         while True:
+            url = self._pagination_url(url, params, visited)
             try:
-                data = self.api_get(f"{album_uri}!images", params=params)
+                data = self.api_get(url, allow_redirects=False)
             except requests.HTTPError as e:
                 if e.response.status_code == 404:
                     break
@@ -176,9 +207,10 @@ class SmugMugDownloader:
             # Check for more pages
             pages = response.get('Pages', {})
             next_page = pages.get('NextPage')
-            if not next_page:
+            if next_page is None or next_page == '':
                 break
-            params['start'] = params.get('start', 0) + params['count']
+            url = next_page
+            params = None
 
         return images
 
